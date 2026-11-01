@@ -22,7 +22,7 @@ def load_model():
 
 model = load_model()
 
-st.setTitle("🛵 Food Delivery Order Cancellation Predictor")
+st.title("🛵 Food Delivery Order Cancellation Predictor")
 st.write("Enter the order parameters below to evaluate cancellation risk.")
 
 with st.form("prediction_form"):
