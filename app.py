@@ -32,12 +32,14 @@ if st.button("Predict Cancellation Risk"):
         'allot_delay_min'
     ])
     
-   # Make prediction and get probability
+   # Make prediction
     prediction = model.predict(input_data)[0]
-    raw_prob = model.predict_proba(input_data)[0][1] # Probability of cancellation
     
-    # Fail-safe check: if the model returns a percentage (> 1.0), use it directly; 
-    # otherwise, multiply standard decimals (0.0 - 1.0) by 100.
+    # Dynamically find the exact index for class 1 (Cancelled) in model.classes_
+    cancelled_index = list(model.classes_).index(1)
+    raw_prob = model.predict_proba(input_data)[0][cancelled_index]
+    
+    # Fail-safe percentage conversion
     if raw_prob > 1.0:
         probability_percent = raw_prob
     else:
