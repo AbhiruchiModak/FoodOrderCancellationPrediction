@@ -64,7 +64,6 @@ else:
     delivery_rate_30d = delivered_orders / alot_div
     is_weekend = float(day_of_week in (5, 6))
 
-    # Raw dictionary of all inputs
     raw_data = {
         'first_mile_distance': first_mile,
         'last_mile_distance': last_mile,
@@ -83,7 +82,7 @@ else:
         'reassigned_order': float(reassigned)
     }
 
-    # Construct DataFrame, filter for model features, and FORCE float conversion (.astype(float))
+    # Construct DataFrame and select features
     input_df = pd.DataFrame([{f: raw_data.get(f, np.nan) for f in features}])[features].astype(float)
 
     def logit(p):
@@ -94,8 +93,8 @@ else:
 
     # 4. Prediction Execution
     if st.button("Predict Cancellation Risk", type="primary", use_container_width=True):
-        # Pass input_df containing exactly bundle['features'] with guaranteed numeric float types
-        p_raw = float(model.predict_proba(input_df)[:, 1][0])
+        # FIX: Added .to_numpy() to pass a clean NumPy array to the pipeline, avoiding imputer/dataframe clashes
+        p_raw = float(model.predict_proba(input_df.to_numpy())[:, 1][0])
         
         # Calibrated risk
         calibrated_risk = float(calibrator.predict_proba(logit([p_raw]))[0, 1])
