@@ -29,7 +29,7 @@ if bundle is None:
     st.error(f"⚠️ Model file '{MODEL_FILE}' not found! Please place your exported .pkl file in the same folder as app.py.")
 else:
     model = bundle['model']
-    features = bundle['features']        # <--- Exact FINAL_FEATURES from your notebook
+    features = bundle['features']        # Exact FINAL_FEATURES from your notebook
     threshold = bundle['threshold']
     calibrator = bundle['calibrator']
     base_rate = bundle['base_rate']
@@ -83,8 +83,8 @@ else:
         'reassigned_order': float(reassigned)
     }
 
-    # Filter DataFrame to contain ONLY the features required by the model bundle
-    input_df = pd.DataFrame([{f: raw_data.get(f, np.nan) for f in features}])[features]
+    # Construct DataFrame, filter for model features, and FORCE float conversion (.astype(float))
+    input_df = pd.DataFrame([{f: raw_data.get(f, np.nan) for f in features}])[features].astype(float)
 
     def logit(p):
         p = np.clip(np.asarray(p, dtype=float), 1e-4, 1 - 1e-4)
@@ -94,7 +94,7 @@ else:
 
     # 4. Prediction Execution
     if st.button("Predict Cancellation Risk", type="primary", use_container_width=True):
-        # Pass input_df containing exactly bundle['features']
+        # Pass input_df containing exactly bundle['features'] with guaranteed numeric float types
         p_raw = float(model.predict_proba(input_df)[:, 1][0])
         
         # Calibrated risk
