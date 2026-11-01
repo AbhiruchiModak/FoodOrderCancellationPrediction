@@ -25,7 +25,7 @@ SAFE_FEATURES = [
     'order_hour', 'order_dayofweek', 'is_weekend', 'reassigned_order'
 ]
 
-MODEL_FILE = "cancellation_model.joblib"
+MODEL_FILE = "cancellation_model.pkl"
 
 @st.cache_resource
 def load_model():
