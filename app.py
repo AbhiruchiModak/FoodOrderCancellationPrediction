@@ -119,7 +119,7 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
     p_raw = float(final_model.predict_proba(row)[:, 1][0])
     risk = float(calibrator.predict_proba(_logit([p_raw]))[0, 1])
 
-    is_high_risk = p_raw >= THRESHOLD
+    is_high_risk = risk >= THRESHOLD # p_raw changed to risk
 
     st.subheader('Prediction Results')
 
