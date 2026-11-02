@@ -133,11 +133,11 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
     if is_high_risk:
       st.error(
           '🚨 **Decision: HIGH RISK - Flag for intervention** (Probability'
-          f' {p_raw:.2f} >= Threshold {THRESHOLD:.2f})'
+          f' {risk:.2%} >= Threshold {THRESHOLD:.2f})'
       )
     else:
       st.success(
-          '✅ **Decision: Normal** (Probability {p_raw:.2f} < Threshold'
+          '✅ **Decision: Normal** (Probability {risk:.2%} < Threshold'
           f' {THRESHOLD:.2f})'
       )
 
