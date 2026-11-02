@@ -1,112 +1,142 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
 import joblib
-import os
+import numpy as np
+import pandas as pd
+import streamlit as st
 
-# 1. Page Configuration
+# --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Food Order Cancellation Predictor",
-    page_icon="🍔",
-    layout="centered"
+    page_title='Order Cancellation Risk Predictor',
+    page_icon='🚚',
+    layout='centered',
 )
 
-st.title("🍔 Food Order Cancellation Predictor")
-st.write("Enter the order logistics and rider metrics below to get the cancellation risk prediction.")
+# --- LOAD MODEL BUNDLE ---
 
-MODEL_FILE = "cancellation_model.pkl"
 
 @st.cache_resource
 def load_bundle():
-    if os.path.exists(MODEL_FILE):
-        return joblib.load(MODEL_FILE)
+  return joblib.load('cancellation_model.pkl')
+
+
+try:
+  bundle = load_bundle()
+  final_model = bundle['model']
+  FINAL_FEATURES = bundle['features']
+  THRESHOLD = bundle['threshold']
+  calibrator = bundle['calibrator']
+  BASE_RATE = bundle['base_rate']
+  medians = bundle.get('medians', {})
+except Exception as e:
+  st.error(
+      f"Error loading model bundle: {e}. Make sure 'cancellation_model.pkl' is"
+      ' in the same directory.'
+  )
+  st.stop()
+
+# --- HELPER DEFINITIONS ---
+DEPENDS = {
+    'total_distance': ['first_mile_distance', 'last_mile_distance'],
+    'cancel_rate_30d': ['alloted_orders', 'undelivered_orders'],
+    'delivery_rate_30d': ['alloted_orders', 'delivered_orders'],
+    'is_weekend': ['order_dayofweek'],
+}
+
+QUESTIONS = {
+    'first_mile_distance': 'Distance rider -> restaurant (km)',
+    'last_mile_distance': 'Distance restaurant -> customer (km)',
+    'alloted_orders': "Rider's orders allotted in the last 30 days",
+    'delivered_orders': "Rider's orders delivered in the last 30 days",
+    'undelivered_orders': (
+        "Rider's orders cancelled/undelivered in the last 30 days"
+    ),
+    'lifetime_order_count': 'Rider lifetime delivered orders',
+    'session_time': 'Minutes the rider has been online today',
+    'allot_delay_min': 'Minutes between order placed and rider allotted',
+    'order_hour': 'Hour the order was placed (0-23)',
+    'order_dayofweek': 'Day of week (0=Mon ... 6=Sun)',
+    'reassigned_order': 'Was the order reassigned to this rider? (1=yes, 0=no)',
+}
+
+needed_raw = []
+for f in FINAL_FEATURES:
+  for r in DEPENDS.get(f, [f]):
+    if r not in needed_raw:
+      needed_raw.append(r)
+
+
+def _logit(p):
+  p = np.clip(p, 1e-15, 1 - 1e-15)
+  return np.log(p / (1 - p)).reshape(-1, 1)
+
+
+def make_row(raw):
+  """raw: dict of answers -> one-row DataFrame with model's features."""
+  g = lambda k: float(raw[k]) if raw.get(k) not in (None, '') else np.nan
+  r = {k: g(k) for k in QUESTIONS}
+  r['total_distance'] = r['first_mile_distance'] + r['last_mile_distance']
+  alot = (
+      r['alloted_orders']
+      if r['alloted_orders'] and r['alloted_orders'] > 0
+      else np.nan
+  )
+  r['cancel_rate_30d'] = r['undelivered_orders'] / alot
+  r['delivery_rate_30d'] = r['delivered_orders'] / alot
+  r['is_weekend'] = (
+      float(r['order_dayofweek'] in (5, 6))
+      if not np.isnan(r['order_dayofweek'])
+      else np.nan
+  )
+  return pd.DataFrame([r])[FINAL_FEATURES]
+
+
+# --- UI LAYOUT ---
+st.title('🚚 Order Cancellation Risk Predictor')
+st.markdown(
+    'Enter or adjust the order and rider parameters below to evaluate'
+    ' cancellation risk in real-time.'
+)
+
+st.sidebar.header('Order & Rider Parameters')
+
+user_raw = {}
+for k in needed_raw:
+  default_val = float(medians.get(k, 0.0))
+  user_raw[k] = st.sidebar.number_input(
+      label=QUESTIONS.get(k, k), value=default_val, format='%.2f'
+  )
+
+# --- PREDICTION LOGIC ---
+if st.sidebar.button('Evaluate Risk', type='primary'):
+  try:
+    row = make_row(user_raw)
+    p_raw = float(final_model.predict_proba(row)[:, 1][0])
+    risk = float(calibrator.predict_proba(_logit([p_raw]))[0, 1])
+
+    is_high_risk = p_raw >= THRESHOLD
+
+    st.subheader('Prediction Results')
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric('Estimated Risk', f'{risk:.1%}')
+    col2.metric('Typical Baseline Rate', f'{BASE_RATE:.1%}')
+    col3.metric('Risk vs Typical', f'{risk / BASE_RATE:.1f}x')
+
+    st.markdown('---')
+
+    if is_high_risk:
+      st.error(
+          '🚨 **Decision: HIGH RISK - Flag for intervention** (Probability'
+          f' {p_raw:.2f} >= Threshold {THRESHOLD:.2f})'
+      )
     else:
-        return None
+      st.success(
+          '✅ **Decision: Normal** (Probability {p_raw:.2f} < Threshold'
+          f' {THRESHOLD:.2f})'
+      )
 
-bundle = load_bundle()
-
-if bundle is None:
-    st.error(f"⚠️ Model file '{MODEL_FILE}' not found! Please place your exported .pkl file in the same folder as app.py.")
+  except Exception as ex:
+    st.error(
+        f'An error occurred during prediction: {ex}. Please check input values.'
+    )
 else:
-    model = bundle['model']
-    features = bundle['features']        # Exact FINAL_FEATURES from your notebook
-    threshold = bundle['threshold']
-    calibrator = bundle['calibrator']
-    base_rate = bundle['base_rate']
-    model_name = bundle['model_name']
-    
-    st.info(f"Loaded **{model_name}** model using {len(features)} optimized features.")
-
-    # 2. Input Fields Layout
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.subheader("📍 Distance & Timing")
-        first_mile = st.number_input("First Mile Distance (km)", min_value=0.0, max_value=25.0, value=1.8, step=0.1)
-        last_mile = st.number_input("Last Mile Distance (km)", min_value=0.0, max_value=30.0, value=3.5, step=0.1)
-        allot_delay = st.number_input("Allotment Delay (mins)", min_value=0.0, max_value=60.0, value=1.2, step=0.1)
-        order_hour = st.slider("Order Hour (0-23)", 0, 23, 14)
-        day_of_week = st.selectbox("Day of Week", options=[0, 1, 2, 3, 4, 5, 6], format_func=lambda x: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][x])
-
-    with col2:
-        st.subheader("🚴 Rider Metrics")
-        alloted_orders = st.number_input("Allotted Orders (30d)", min_value=0, max_value=500, value=45)
-        delivered_orders = st.number_input("Delivered Orders (30d)", min_value=0, max_value=500, value=44)
-        undelivered_orders = st.number_input("Undelivered Orders (30d)", min_value=0, max_value=50, value=1)
-        session_time = st.number_input("Active Session Time (hrs)", min_value=0.0, max_value=24.0, value=4.5, step=0.25)
-        lifetime_orders = st.number_input("Lifetime Order Count", min_value=0, max_value=5000, value=350)
-        reassigned = st.selectbox("Is Order Reassigned?", options=[0.0, 1.0], format_func=lambda x: "Yes" if x == 1.0 else "No")
-
-    # 3. Feature Engineering (matching notebook logic)
-    total_distance = first_mile + last_mile
-    alot_div = alloted_orders if alloted_orders > 0 else np.nan
-    cancel_rate_30d = undelivered_orders / alot_div
-    delivery_rate_30d = delivered_orders / alot_div
-    is_weekend = float(day_of_week in (5, 6))
-
-    raw_data = {
-        'first_mile_distance': first_mile,
-        'last_mile_distance': last_mile,
-        'total_distance': total_distance,
-        'alloted_orders': float(alloted_orders),
-        'delivered_orders': float(delivered_orders),
-        'undelivered_orders': float(undelivered_orders),
-        'lifetime_order_count': float(lifetime_orders),
-        'session_time': float(session_time),
-        'allot_delay_min': float(allot_delay),
-        'cancel_rate_30d': cancel_rate_30d,
-        'delivery_rate_30d': delivery_rate_30d,
-        'order_hour': int(order_hour),
-        'order_dayofweek': int(day_of_week),
-        'is_weekend': is_weekend,
-        'reassigned_order': float(reassigned)
-    }
-
-    # Construct DataFrame and select features
-    input_df = pd.DataFrame([{f: raw_data.get(f, np.nan) for f in features}])[features].astype(float)
-
-    def logit(p):
-        p = np.clip(np.asarray(p, dtype=float), 1e-4, 1 - 1e-4)
-        return np.log(p / (1 - p)).reshape(-1, 1)
-
-    st.markdown("---")
-
-    # 4. Prediction Execution
-    if st.button("Predict Cancellation Risk", type="primary", use_container_width=True):
-        # FIX: Added .to_numpy() to pass a clean NumPy array to the pipeline, avoiding imputer/dataframe clashes
-        p_raw = float(model.predict_proba(input_df.to_numpy())[:, 1][0])
-        
-        # Calibrated risk
-        calibrated_risk = float(calibrator.predict_proba(logit([p_raw]))[0, 1])
-        
-        st.subheader("Prediction Results")
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            st.metric("Estimated Cancellation Risk", f"{calibrated_risk:.1%}")
-        with col_m2:
-            st.metric("Typical Dataset Base Rate", f"{base_rate:.1%}")
-            
-        if p_raw >= threshold:
-            st.error(f"⚠️ **HIGH RISK ({model_name})**: Flagged for early operational intervention (Threshold: {threshold:.3f}).")
-        else:
-            st.success(f"✅ **NORMAL**: Order stability looks healthy (Threshold: {threshold:.3f}).")
+  st.info('👈 Adjust parameters in the sidebar and click **Evaluate Risk**.')
