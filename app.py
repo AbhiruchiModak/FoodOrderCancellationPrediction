@@ -71,11 +71,6 @@ for f in FINAL_FEATURES:
       needed_raw.append(r)
 
 
-def _logit(p):
-  p = np.clip(p, 1e-15, 1 - 1e-15)
-  return np.log(p / (1 - p)).reshape(-1, 1)
-
-
 def make_row(raw):
   """raw: dict of answers -> one-row DataFrame with model's features."""
   g = lambda k: float(raw[k]) if raw.get(k) not in (None, '') else np.nan
@@ -117,9 +112,11 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
   try:
     row = make_row(user_raw)
     p_raw = float(final_model.predict_proba(row)[:, 1][0])
-    risk = float(calibrator.predict_proba(_logit([p_raw]))[0, 1])
+    
+    # FIX: Pass raw probability directly to calibrator in 2D array format
+    risk = float(calibrator.predict_proba([[p_raw]])[0, 1])
 
-    is_high_risk = risk >= THRESHOLD # p_raw changed to risk
+    is_high_risk = risk >= THRESHOLD
 
     st.subheader('Prediction Results')
 
@@ -136,8 +133,9 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
           f' {risk:.2%} >= Threshold {THRESHOLD:.2f})'
       )
     else:
+      # FIX: Added missing 'f' prefix for string formatting
       st.success(
-          '✅ **Decision: Normal** (Probability {risk:.2%} < Threshold'
+          f'✅ **Decision: Normal** (Probability {risk:.2%} < Threshold'
           f' {THRESHOLD:.2f})'
       )
 
