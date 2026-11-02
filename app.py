@@ -12,7 +12,6 @@ st.set_page_config(
 )
 
 # --- LOAD MODEL BUNDLE ---
-
 def load_bundle():
   bundle = joblib.load('cancellation_model.pkl')
 
@@ -23,7 +22,6 @@ def load_bundle():
       step._fill_dtype = getattr(step, 'statistics_', [0.0]).dtype
 
   return bundle
-
 
 try:
   bundle = load_bundle()
@@ -40,22 +38,13 @@ except Exception as e:
   )
   st.stop()
 
-# --- HELPER DEFINITIONS ---
-DEPENDS = {
-    'total_distance': ['first_mile_distance', 'last_mile_distance'],
-    'cancel_rate_30d': ['alloted_orders', 'undelivered_orders'],
-    'delivery_rate_30d': ['alloted_orders', 'delivered_orders'],
-    'is_weekend': ['order_dayofweek'],
-}
-
+# --- DEFINITIONS ---
 QUESTIONS = {
     'first_mile_distance': 'Distance rider -> restaurant (km)',
     'last_mile_distance': 'Distance restaurant -> customer (km)',
     'alloted_orders': "Rider's orders allotted in the last 30 days",
     'delivered_orders': "Rider's orders delivered in the last 30 days",
-    'undelivered_orders': (
-        "Rider's orders cancelled/undelivered in the last 30 days"
-    ),
+    'undelivered_orders': "Rider's orders cancelled/undelivered in the last 30 days",
     'lifetime_order_count': 'Rider lifetime delivered orders',
     'session_time': 'Minutes the rider has been online today',
     'allot_delay_min': 'Minutes between order placed and rider allotted',
@@ -64,32 +53,19 @@ QUESTIONS = {
     'reassigned_order': 'Was the order reassigned to this rider? (1=yes, 0=no)',
 }
 
-needed_raw = []
-for f in FINAL_FEATURES:
-  for r in DEPENDS.get(f, [f]):
-    if r not in needed_raw:
-      needed_raw.append(r)
-
-
 def make_row(raw):
   """raw: dict of answers -> one-row DataFrame with model's features."""
-  g = lambda k: float(raw[k]) if raw.get(k) not in (None, '') else np.nan
+  g = lambda k: float(raw[k]) if raw.get(k) not in (None, '') else float(medians.get(k, 0.0))
   r = {k: g(k) for k in QUESTIONS}
+  
+  # Compute engineered features safely
   r['total_distance'] = r['first_mile_distance'] + r['last_mile_distance']
-  alot = (
-      r['alloted_orders']
-      if r['alloted_orders'] and r['alloted_orders'] > 0
-      else np.nan
-  )
+  alot = r['alloted_orders'] if r['alloted_orders'] and r['alloted_orders'] > 0 else 1.0
   r['cancel_rate_30d'] = r['undelivered_orders'] / alot
   r['delivery_rate_30d'] = r['delivered_orders'] / alot
-  r['is_weekend'] = (
-      float(r['order_dayofweek'] in (5, 6))
-      if not np.isnan(r['order_dayofweek'])
-      else np.nan
-  )
+  r['is_weekend'] = float(r['order_dayofweek'] in (5, 6))
+  
   return pd.DataFrame([r])[FINAL_FEATURES]
-
 
 # --- UI LAYOUT ---
 st.title('🚚 Order Cancellation Risk Predictor')
@@ -101,10 +77,10 @@ st.markdown(
 st.sidebar.header('Order & Rider Parameters')
 
 user_raw = {}
-for k in needed_raw:
+for k in QUESTIONS:
   default_val = float(medians.get(k, 0.0))
   user_raw[k] = st.sidebar.number_input(
-      label=QUESTIONS.get(k, k), value=default_val, format='%.2f'
+      label=QUESTIONS[k], value=default_val, format='%.2f'
   )
 
 # --- PREDICTION LOGIC ---
@@ -112,7 +88,7 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
   try:
     row = make_row(user_raw)
     
-    # Ensure no NaNs are passed to the model
+    # Safety check for NaNs
     if row.isna().any().any():
       st.error("Error: Some required input features are missing or NaN. Please check all sidebar fields.")
       st.stop()
@@ -148,3 +124,5 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
     st.error(
         f'An error occurred during prediction: {ex}. Please check input values.'
     )
+else:
+  st.info('👈 Adjust parameters in the sidebar and click **Evaluate Risk**.')
