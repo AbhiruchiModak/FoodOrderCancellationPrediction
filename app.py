@@ -2,6 +2,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
+from sklearn.impute import SimpleImputer
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -12,10 +13,16 @@ st.set_page_config(
 
 # --- LOAD MODEL BUNDLE ---
 
-
-@st.cache_resource
 def load_bundle():
-  return joblib.load('cancellation_model.pkl')
+  bundle = joblib.load('cancellation_model.pkl')
+
+  # Hotfix patch for old scikit-learn imputer compatibility
+  model = bundle['model']
+  for name, step in getattr(model, 'steps', []):
+    if isinstance(step, SimpleImputer) and not hasattr(step, '_fill_dtype'):
+      step._fill_dtype = getattr(step, 'statistics_', [0.0]).dtype
+
+  return bundle
 
 
 try:
