@@ -111,9 +111,15 @@ for k in needed_raw:
 if st.sidebar.button('Evaluate Risk', type='primary'):
   try:
     row = make_row(user_raw)
+    
+    # Ensure no NaNs are passed to the model
+    if row.isna().any().any():
+      st.error("Error: Some required input features are missing or NaN. Please check all sidebar fields.")
+      st.stop()
+
     p_raw = float(final_model.predict_proba(row)[:, 1][0])
     
-    # FIX: Pass raw probability directly to calibrator in 2D array format
+    # Pass raw probability correctly in 2D array format to calibrator
     risk = float(calibrator.predict_proba([[p_raw]])[0, 1])
 
     is_high_risk = risk >= THRESHOLD
@@ -133,7 +139,6 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
           f' {risk:.2%} >= Threshold {THRESHOLD:.2f})'
       )
     else:
-      # FIX: Added missing 'f' prefix for string formatting
       st.success(
           f'✅ **Decision: Normal** (Probability {risk:.2%} < Threshold'
           f' {THRESHOLD:.2f})'
@@ -143,5 +148,3 @@ if st.sidebar.button('Evaluate Risk', type='primary'):
     st.error(
         f'An error occurred during prediction: {ex}. Please check input values.'
     )
-else:
-  st.info('👈 Adjust parameters in the sidebar and click **Evaluate Risk**.')
